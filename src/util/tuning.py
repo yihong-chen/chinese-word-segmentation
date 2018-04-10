@@ -55,7 +55,7 @@ def report_f_measure(score_info_file):
         except UnicodeDecodeError:
             pass
     if f_measure is None:
-        raise UnicodeDecodeError("{}".format(score_info_file))
+        raise UnicodeDecodeError("{}".format(score_info_file), )
     return f_measure
 
 

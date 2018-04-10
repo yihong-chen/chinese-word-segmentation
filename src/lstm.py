@@ -45,7 +45,10 @@ def test(lstm_params,
         if lstm_params['use_cuda']:
             sen = sen.cuda()
             target = target.cuda()
+
+        model.hidden = model.init_hidden()
         tag_scores = model(sen)
+
         loss = loss_func(tag_scores, target)
         if lstm_params['use_cuda']:
             avg_loss += loss.cpu().data.numpy()[0]
@@ -54,7 +57,8 @@ def test(lstm_params,
 
         tag = torch.max(tag_scores, dim=1)[1]
         test_preds.append(tag.data.tolist())
-    avg_loss = avg_loss / (len(test_sentences_idx) * 1.0)
+    num_tags = sum([len(sen) for sen in test_sentences_idx])
+    avg_loss = avg_loss / (num_tags * 1.0)
 
     # convert label into element
     test_preds = prepare_sequence(test_preds, idx2label)
@@ -80,7 +84,7 @@ def test(lstm_params,
     return avg_loss, f_measure
 
 
-def tune_lstm_hyper(lstm_params):
+def tune_lstm_hyper(lstm_params, cache_dir):
 
     # train_dev_split('./data/pku_training.utf8',
     #                 './data/pku_tune_training.utf8',
@@ -102,6 +106,7 @@ def tune_lstm_hyper(lstm_params):
     label2idx = create_dictionary(train_labels, start_from_zero=True)
     idx2word = {v:k for k,v in word2idx.items()}
     idx2label = {v:k for k,v in label2idx.items()}
+    print('Vocabulary size: {}'.format(len(word2idx)))
 
     # prepare sequence
     train_sentences_idx = prepare_sequence(train_sentences, word2idx)
@@ -124,7 +129,7 @@ def tune_lstm_hyper(lstm_params):
     for epoch in range(300):
         model.train()
         avg_loss = 0
-        for sentence, tags in zip(train_sentences_idx, train_labels_idx):
+        for idx, (sentence, tags) in enumerate(zip(train_sentences_idx, train_labels_idx)):
             model.zero_grad()
             model.hidden = model.init_hidden()
             sentence_in = autograd.Variable(torch.LongTensor(sentence))
@@ -140,21 +145,25 @@ def tune_lstm_hyper(lstm_params):
                 avg_loss += loss.cpu().data.numpy()[0]
             else:
                 avg_loss += loss.data.numpy()[0]
-        avg_loss = avg_loss / (len(train_sentences_idx) * 1.0)
+
+            if (idx % 100 == 0) and (idx >= 100):
+                # Evaluate every epoch
+                test_loss, test_f1 = test(lstm_params,
+                                          model, loss_function,
+                                          test_sentences_idx, test_labels_idx,
+                                          idx2label, test_sentences,
+                                          train_dict_file, test_file_gold, cache_dir=cache_dir)
+
+                print('[Evaluate] Epoch {} Idx {}, Average Loss {}, F1 measure {}'.format(epoch, idx, test_loss, test_f1))
+
+        num_tags = sum([len(sen) for sen in train_sentences_idx])
+        avg_loss = avg_loss / (num_tags * 1.0)
         print('[Training] Epoch {}, Average Loss {}'.format(epoch, avg_loss))
-
-        # Evaluate every epoch
-        test_loss, test_f1 = test(lstm_params,
-                                  model, loss_function,
-                                  test_sentences_idx, test_labels_idx,
-                                  idx2label, test_sentences,
-                                  train_dict_file, test_file_gold, cache_dir='./output/')
-        print('[Evaluate] Epoch {}, Average Loss {}, F1 measure {}'.format(epoch, test_loss, test_f1))
-
 
 if __name__ == '__main__':
     print(create_dictionary([['a', 'b'], ['b', 'c']]))
     tune_lstm_hyper(lstm_params={'embedding_dim': 64,
-                                 'hidden_dim': 64,
+                                 'hidden_dim': 32,
                                  'use_cuda': True,
-                                 'device_id': 2})
+                                 'device_id': 0},
+                    cache_dir='./output/')
